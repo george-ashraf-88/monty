@@ -1,116 +1,160 @@
 #include "monty.h"
 
 /**
- * err - Prints appropiate error messages determined by their error code.
- * @error_code: The error codes are the following:
- * (1) => The user does not give any file or more than one file to the program.
- * (2) => The file provided is not a file that can be opened or read.
- * (3) => The file provided contains an invalid instruction.
- * (4) => When the program is unable to malloc more memory.
- * (5) => When the parameter passed to the instruction "push" is not an int.
- * (6) => When the stack it empty for pint.
- * (7) => When the stack it empty for pop.
- * (8) => When stack is too short for operation.
+ * open_file - opens a file
+ * @file_name: the file namepath
+ * Return: void
  */
-void err(int error_code, ...)
-{
-	va_list a;
-	char *op;
-	int l_num;
 
-	va_start(a, error_code);
-	switch (error_code)
+void open_file(char *file_name)
+{
+	FILE *fd = fopen(file_name, "r");
+
+	if (file_name == NULL || fd == NULL)
+		err(2, file_name);
+
+	read_file(fd);
+	fclose(fd);
+}
+
+
+/**
+ * read_file - reads a file
+ * @fd: pointer to file descriptor
+ * Return: void
+ */
+
+void read_file(FILE *fd)
+{
+	int line_number, format = 0;
+	char *buffer = NULL;
+	size_t len = 0;
+
+	for (line_number = 1; getline(&buffer, &len, fd) != -1; line_number++)
 	{
-		case 1:
-			fprintf(stderr, "USAGE: monty file\n");
-			break;
-		case 2:
-			fprintf(stderr, "Error: Can't open file %s\n",
-				va_arg(a, char *));
-			break;
-		case 3:
-			l_num = va_arg(a, int);
-			op = va_arg(a, char *);
-			fprintf(stderr, "L%d: unknown instruction %s\n", l_num, op);
-			break;
-		case 4:
-			fprintf(stderr, "Error: malloc failed\n");
-			break;
-		case 5:
-			fprintf(stderr, "L%d: usage: push integer\n", va_arg(a, int));
-			break;
-		default:
-			break;
+		format = parse_line(buffer, line_number, format);
 	}
-	free_nodes();
-	exit(EXIT_FAILURE);
+	free(buffer);
+}
+
+
+/**
+ * parse_line - Separates each line into tokens to determine
+ * which function to call
+ * @buffer: line from the file
+ * @line_number: line number
+ * @format:  storage format. If 0 Nodes will be entered as a stack.
+ * if 1 nodes will be entered as a queue.
+ * Return: Returns 0 if the opcode is stack. 1 if queue.
+ */
+
+int parse_line(char *buffer, int line_number, int format)
+{
+	char *opcode, *value;
+	const char *delim = "\n ";
+
+	if (buffer == NULL)
+		err(4);
+
+	opcode = strtok(buffer, delim);
+	if (opcode == NULL)
+		return (format);
+	value = strtok(NULL, delim);
+
+	if (strcmp(opcode, "stack") == 0)
+		return (0);
+	if (strcmp(opcode, "queue") == 0)
+		return (1);
+
+	find_func(opcode, value, line_number, format);
+	return (format);
 }
 
 /**
- * more_err - handles errors.
- * @error_code: The error codes are the following:
- * (6) => When the stack it empty for pint.
- * (7) => When the stack it empty for pop.
- * (8) => When stack is too short for operation.
- * (9) => Division by zero.
+ * find_func - find the appropriate function for the opcode
+ * @opcode: opcode
+ * @value: argument of opcode
+ * @format:  storage format. If 0 Nodes will be entered as a stack.
+ * @ln: line number
+ * if 1 nodes will be entered as a queue.
+ * Return: void
  */
-void more_err(int error_code, ...)
+void find_func(char *opcode, char *value, int ln, int format)
 {
-	va_list a;
-	char *op;
-	int l_num;
+	int i;
+	int flag;
 
-	va_start(a, error_code);
-	switch (error_code)
+	instruction_t func_list[] = {
+		{"push", add_to_stack},
+		{"pall", print_stack},
+		{"pint", print_top},
+		{"pop", pop_top},
+		{"nop", nop},
+		{"swap", swap_nodes},
+		{"add", add_nodes},
+		{"sub", sub_nodes},
+		{"div", div_nodes},
+		{"mul", mul_nodes},
+		{"mod", mod_nodes},
+		{"pchar", print_char},
+		{"pstr", print_str},
+		{"rotl", rotl},
+		{"rotr", rotr},
+		{NULL, NULL}
+	};
+
+	if (opcode[0] == '#')
+		return;
+
+	for (flag = 1, i = 0; func_list[i].opcode != NULL; i++)
 	{
-		case 6:
-			fprintf(stderr, "L%d: can't pint, stack empty\n",
-				va_arg(a, int));
-			break;
-		case 7:
-			fprintf(stderr, "L%d: can't pop an empty stack\n",
-				va_arg(a, int));
-			break;
-		case 8:
-			l_num = va_arg(a, unsigned int);
-			op = va_arg(a, char *);
-			fprintf(stderr, "L%d: can't %s, stack too short\n", l_num, op);
-			break;
-		case 9:
-			fprintf(stderr, "L%d: division by zero\n",
-				va_arg(a, unsigned int));
-			break;
-		default:
-			break;
+		if (strcmp(opcode, func_list[i].opcode) == 0)
+		{
+			call_fun(func_list[i].f, opcode, value, ln, format);
+			flag = 0;
+		}
 	}
-	free_nodes();
-	exit(EXIT_FAILURE);
+	if (flag == 1)
+		err(3, ln, opcode);
 }
 
-/**
- * string_err - handles errors.
- * @error_code: The error codes are the following:
- * (10) ~> The number inside a node is outside ASCII bounds.
- * (11) ~> The stack is empty.
- */
-void string_err(int error_code, ...)
-{
-	va_list a;
-	int l_num;
 
-	va_start(a, error_code);
-	l_num = va_arg(a, int);
-	switch (error_code)
+/**
+ * call_fun - Calls the required function.
+ * @func: Pointer to the function that is about to be called.
+ * @op: string representing the opcode.
+ * @val: string representing a numeric value.
+ * @ln: line numeber for the instruction.
+ * @format: Format specifier. If 0 Nodes will be entered as a stack.
+ * if 1 nodes will be entered as a queue.
+ */
+void call_fun(op_func func, char *op, char *val, int ln, int format)
+{
+	stack_t *node;
+	int flag;
+	int i;
+
+	flag = 1;
+	if (strcmp(op, "push") == 0)
 	{
-		case 10:
-			fprintf(stderr, "L%d: can't pchar, value out of range\n", l_num);
-			break;
-		case 11:
-			fprintf(stderr, "L%d: can't pchar, stack empty\n", l_num);
-			break;
-		default:
-			break;
+		if (val != NULL && val[0] == '-')
+		{
+			val = val + 1;
+			flag = -1;
+		}
+		if (val == NULL)
+			err(5, ln);
+		for (i = 0; val[i] != '\0'; i++)
+		{
+			if (isdigit(val[i]) == 0)
+				err(5, ln);
+		}
+		node = create_node(atoi(val) * flag);
+		if (format == 0)
+			func(&node, ln);
+		if (format == 1)
+			add_to_queue(&node, ln);
 	}
-	free_nodes();
-	exit(EXIT_FAILURE);
+	else
+		func(&head, ln);
 }
